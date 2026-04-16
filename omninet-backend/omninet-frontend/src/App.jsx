@@ -8,6 +8,18 @@ const generateAlias = () => `${ALIEN_DNA[Math.floor(Math.random() * ALIEN_DNA.le
 
 const INITIAL_TRANSMISSIONS = [
   {
+    id: "post_omi_001", 
+    authorAlias: "Plumber_Recruit_Omi", 
+    planetCom: "BellwoodLocals",
+    content: "Just got my official Plumber badge cleared! Let's see what this network is all about. ✌️✨",
+    upvotes: 999, 
+    votes: {}, 
+    comments: [
+      { id: "c_omi_1", authorAlias: "Kineceleran_XLR8_112", text: "Welcome to the grid!" }
+    ],
+    image: "/omi-post.jpg" // <--- This points directly to the image in your public folder
+  },
+  {
     id: "post_1", authorAlias: "Appoplexian_Rath_8832", planetCom: "PlumberHQ",
     content: "LET ME TELL YOU SOMETHING! Appoplexians do NOT need to use 'inside voices' in the mess hall. AITA for breaking the titanium table?",
     upvotes: 245, votes: {}, comments: [
@@ -71,20 +83,24 @@ export default function OmninetApp() {
     return fresh;
   });
 
-  // --- API Functions (BUG FIXED) ---
+ // --- API Functions (BUG FIXED) ---
   const fetchPosts = async () => {
     try {
       const res = await fetch('http://localhost:5000/api/posts');
       if (res.ok) {
         const data = await res.json();
-        // BUG FIX: Merge backend data with mock data so it never disappears!
-        const mergedPosts = [...data];
-        INITIAL_TRANSMISSIONS.forEach(mockPost => {
-          if (!mergedPosts.find(p => p.id === mockPost.id)) {
-            mergedPosts.push(mockPost);
-          }
+        
+        // BUG FIX: Use 'prevPosts' to remember the EXACT current state (including your recent likes)
+        setPosts(prevPosts => {
+          const mergedPosts = [...data];
+          prevPosts.forEach(existingPost => {
+            // If it's a mock post that the server doesn't know about, keep our local version!
+            if (!mergedPosts.find(p => p.id === existingPost.id)) {
+              mergedPosts.push(existingPost);
+            }
+          });
+          return mergedPosts;
         });
-        setPosts(mergedPosts);
       }
     } catch (e) { /* Silently use local state */ }
   };
@@ -95,36 +111,36 @@ export default function OmninetApp() {
     return () => clearInterval(intervalId);
   }, []);
 
-  const handleTransmit = async (e) => {
-    e.preventDefault();
-    if (!newPost.trim() && !imageString) return;
-    const transmission = { id: Date.now().toString(), authorAlias: currentUserAlias, planetCom: selectedPlanet, content: newPost, image: imageString, upvotes: 0, votes: {}, comments: [] };
-    
-    // Optimistic UI update (shows instantly)
-    setPosts([transmission, ...posts]);
-    
-    try {
-      await fetch('http://localhost:5000/api/posts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(transmission) });
-    } catch (error) { console.log("Running in offline mode"); }
-    
-    setNewPost(""); setImageString(null); setIsPostModalOpen(false);
-  };
-
   const handleVote = async (id, action) => {
-    setPosts(posts.map(p => {
+    // BUG FIX: Use 'prevPosts' here too so clicks never get overwritten by the timer
+    setPosts(prevPosts => prevPosts.map(p => {
       if (p.id === id) {
         const currentVote = p.votes[currentUserAlias];
         let newUpvotes = p.upvotes;
         const newVotes = { ...p.votes };
-        if (currentVote === action) { delete newVotes[currentUserAlias]; newUpvotes += (action === 'up' ? -1 : 1); } 
-        else { newVotes[currentUserAlias] = action; if (action === 'up') newUpvotes += (currentVote === 'down' ? 2 : 1); if (action === 'down') newUpvotes -= (currentVote === 'up' ? 2 : 1); }
+        
+        if (currentVote === action) { 
+          delete newVotes[currentUserAlias]; 
+          newUpvotes += (action === 'up' ? -1 : 1); 
+        } else { 
+          newVotes[currentUserAlias] = action; 
+          if (action === 'up') newUpvotes += (currentVote === 'down' ? 2 : 1); 
+          if (action === 'down') newUpvotes -= (currentVote === 'up' ? 2 : 1); 
+        }
         return { ...p, votes: newVotes, upvotes: newUpvotes };
       }
       return p;
     }));
-    try { await fetch(`http://localhost:5000/api/posts/${id}/vote`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, voterAlias: currentUserAlias }) }); } catch (error) {}
-  };
 
+    try { 
+      await fetch(`http://localhost:5000/api/posts/${id}/vote`, { 
+        method: 'PATCH', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ action, voterAlias: currentUserAlias }) 
+      }); 
+    } catch (error) {}
+  };
+  
   const handleDelete = async (id) => {
     if (!window.confirm("Purge this transmission?")) return;
     setPosts(posts.filter(p => p.id !== id));
